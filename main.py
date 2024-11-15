@@ -20,7 +20,8 @@ def check_ffmpeg():
 def remux_video(file_path, output_queue):
     if file_path.endswith((".mp4", ".mov", ".avi")):
         output_path = os.path.splitext(file_path)[0] + "_remuxed.mkv"
-        command = ["ffmpeg", "-i", file_path, "-c", "copy", output_path]
+        # Wrap file paths in quotes to handle spaces and special characters
+        command = ["ffmpeg", "-i", f"{file_path}", "-c", "copy", f"{output_path}"]
         try:
             subprocess.run(command, check=True)
             output_queue.put((file_path, output_path, "Success"))
@@ -28,6 +29,7 @@ def remux_video(file_path, output_queue):
             output_queue.put((file_path, None, "Error"))
     else:
         output_queue.put((file_path, None, "Invalid File"))
+
 
 # Background worker to process the queue
 def process_queue(remux_queue, output_queue, stop_event):
