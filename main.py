@@ -2,10 +2,10 @@ import tkinter as tk
 from tkinterdnd2 import TkinterDnD, DND_FILES
 import subprocess
 import os
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 import threading
 import queue
-import time
+import re
 
 # Check if ffmpeg is installed
 def check_ffmpeg():
@@ -20,7 +20,6 @@ def check_ffmpeg():
 def remux_video(file_path, output_queue):
     if file_path.endswith((".mp4", ".mov", ".avi")):
         output_path = os.path.splitext(file_path)[0] + "_remuxed.mkv"
-        # Wrap file paths in quotes to handle spaces and special characters
         command = ["ffmpeg", "-i", f"{file_path}", "-c", "copy", f"{output_path}"]
         try:
             subprocess.run(command, check=True)
@@ -29,7 +28,6 @@ def remux_video(file_path, output_queue):
             output_queue.put((file_path, None, "Error"))
     else:
         output_queue.put((file_path, None, "Invalid File"))
-
 
 # Background worker to process the queue
 def process_queue(remux_queue, output_queue, stop_event):
@@ -46,7 +44,7 @@ class RemuxTool(TkinterDnD.Tk):
     def __init__(self):
         super().__init__()
         self.title("Video Remux Tool for DaVinci Resolve")
-        self.geometry("500x350")
+        self.geometry("500x400")
         self.configure(bg="#2e2e2e")
 
         # Queue and threading setup
@@ -57,14 +55,19 @@ class RemuxTool(TkinterDnD.Tk):
         self.worker_thread.start()
 
         # GUI elements
-        self.label = tk.Label(self, text="Drag and drop your videos here", bg="#2e2e2e", fg="white", font=("Arial", 14))
-        self.label.pack(pady=20)
+        self.label = tk.Label(self, text="Drag and drop your videos here or use 'Browse Files'", bg="#2e2e2e", fg="white", font=("Arial", 14))
+        self.label.pack(pady=10)
 
         self.queue_listbox = tk.Listbox(self, width=60, height=12, bg="#1e1e1e", fg="white")
         self.queue_listbox.pack(pady=10)
 
+        # Drag and drop setup
         self.drop_target_register(DND_FILES)
         self.dnd_bind("<<Drop>>", self.on_drop)
+
+        # Button to open file dialog for large files
+        self.browse_button = tk.Button(self, text="Browse Files", command=self.open_file_dialog)
+        self.browse_button.pack(pady=10)
 
         if not check_ffmpeg():
             self.quit()
@@ -75,12 +78,20 @@ class RemuxTool(TkinterDnD.Tk):
     def on_drop(self, event):
         file_paths = self.parse_dropped_files(event.data)
         for file_path in file_paths:
-            self.queue_listbox.insert(tk.END, f"Queued: {os.path.basename(file_path)}")
-            self.remux_queue.put(file_path)
+            if file_path:  # Ensure it's a valid path
+                self.queue_listbox.insert(tk.END, f"Queued: {os.path.basename(file_path)}")
+                self.remux_queue.put(file_path)
 
     def parse_dropped_files(self, data):
-        # Handle multiple files dropped at once
-        return data.strip("{}").split("} {")
+        # Use regex to parse each file path individually, even with spaces and special characters
+        return re.findall(r'\{(.*?)\}', data)
+
+    def open_file_dialog(self):
+        # Allow user to select multiple files through file dialog
+        file_paths = filedialog.askopenfilenames(filetypes=[("Video Files", "*.mp4 *.mov *.avi")])
+        for file_path in file_paths:
+            self.queue_listbox.insert(tk.END, f"Queued: {os.path.basename(file_path)}")
+            self.remux_queue.put(file_path)
 
     def check_output_queue(self):
         while not self.output_queue.empty():
