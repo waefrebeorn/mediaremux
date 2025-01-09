@@ -1,18 +1,49 @@
-# Video Remux Tool for DaVinci Resolve
+# Video Transcoder - HEVC Game Stream Optimizer
 
-This Python-based tool provides a GUI interface that allows users to drag and drop multiple video files for remuxing into DaVinci Resolve-compatible MKV containers. It’s designed to handle large volumes of video files efficiently, making it ideal for overnight batch processing.
+A Python-based GUI application that provides GPU-accelerated video transcoding optimized for game capture and streaming using NVIDIA's NVENC encoder. This tool is specifically designed for high-quality, efficient compression of gameplay footage with a user-friendly interface.
 
 ## Key Features
 
-- **Drag-and-Drop GUI**: Easily drag and drop video files for seamless queuing.
-- **Supported Formats**: Works with MP4, MOV, and AVI files, remuxing them into MKV containers.
-- **Fast Processing**: The tool copies video and audio streams directly without re-encoding, ensuring fast, high-quality conversions.
-- **Continuous Queueing**: Users can add files to the queue at any time, allowing background processing while browsing or during an overnight session.
+- **GPU-Accelerated HEVC/H.265 Encoding**: Uses NVIDIA's NVENC for fast, high-quality compression
+- **Game Stream Optimized Settings**: Tuned for high motion content with quality-focused parameters
+- **Drag-and-Drop Interface**: Simple GUI for queuing multiple video files
+- **Multi-File Processing**: Queue and process multiple videos sequentially
+- **Progress Tracking**: Real-time progress updates and status monitoring
+- **Flexible Output Options**: Custom output directory selection and optional 1080p downscaling
+- **Automatic Codec Detection**: Falls back to H.264 if HEVC is not supported
 
 ## Prerequisites
 
-1. **Python 3.7 or higher**: Ensure Python is installed and accessible from your system PATH.
-2. **FFmpeg**: This tool requires FFmpeg, which must be installed and added to the system PATH.
+1. **NVIDIA GPU**: Required for NVENC hardware acceleration
+2. **Python 3.x**
+3. **FFmpeg**: Must be installed and accessible in your system PATH
+4. **Required Python Packages**:
+   ```bash
+   pip install tkinterdnd2
+   ```
+
+## Encoding Specifications
+
+### Video Settings
+- **Codec**: HEVC (H.265) with NVENC hardware acceleration
+- **Preset**: p2 (Fast)
+- **Tuning**: High Quality
+- **Bitrate Control**: Variable Bitrate (VBR)
+- **Target Bitrate**: 20 Mbps
+- **Maximum Bitrate**: 30 Mbps
+- **Buffer Size**: 40 Mbps
+- **Quality Features**:
+  - Spatial AQ (Adaptive Quantization)
+  - Temporal AQ
+  - 3 Reference Frames
+  - 250-frame GOP Size
+  - 3 B-Frames
+
+### Audio Settings
+- **Codec**: AAC
+- **Bitrate**: 192 kbps
+- **Sample Rate**: 48 kHz
+- **Smart Stream Copy**: Preserves original AAC streams when possible
 
 ## Installation
 
@@ -22,84 +53,109 @@ This Python-based tool provides a GUI interface that allows users to drag and dr
    cd <repository_directory>
    ```
 
-2. **Set Up a Virtual Environment**:
+2. **Install Dependencies**:
    ```bash
-   python -m venv venv
+   pip install -r requirements.txt
    ```
 
-3. **Activate the Virtual Environment**:
-   - **Windows**:
-     ```bash
-     venv\Scripts\activate
-     ```
-   - **macOS/Linux**:
-     ```bash
-     source venv/bin/activate
-     ```
-
-4. **Install Dependencies**:
-   ```bash
-   pip install tkinterdnd2
-   ```
+3. **Install FFmpeg**:
+   - Download FFmpeg from [ffmpeg.org](https://ffmpeg.org/download.html)
+   - Add FFmpeg to your system PATH
 
 ## Usage
 
-1. **Run the Tool**:
+1. **Launch the Application**:
    ```bash
    python main.py
    ```
 
-2. **Using the Drag-and-Drop Interface**:
-   - Drag video files (MP4, MOV, AVI) into the application window. Each file will be queued and processed in the background.
-   - The tool displays real-time status updates in the queue, including:
-     - `Queued`: File is waiting to be processed.
-     - `Completed`: File has been successfully remuxed to MKV.
-     - `Error`: An error occurred during remuxing.
-     - `Invalid File`: Unsupported file format.
+2. **Using the Interface**:
+   - **Add Files**: Either drag and drop video files into the window or use the "Browse Files" button
+   - **Select Output Location** (Optional): Choose a custom output folder
+   - **Downscaling Option**: Toggle "Force scale to 1080p" if needed
+   - **Start Processing**: Click "Start Transcoding"
+   - **Monitor Progress**: Watch the progress bar and status updates
+   - **Cancel Operations**: Use "Stop Transcoding" to halt current operations
+   - **Clear Queue**: Remove all queued items with "Clear Queue"
 
-3. **Continuous Processing**:
-   - The tool allows continuous addition of files. You can add new files even while others are processing, making it suitable for unattended overnight processing of large volumes.
+## Output Specifications
 
-4. **Exiting the Tool**:
-   - When you close the window, the program will gracefully stop processing, ensuring all running tasks are completed.
+- Files are saved with "_transcoded" suffix in MP4 format
+- Maintains original metadata and stream mapping
+- FastStart flag enabled for optimized streaming
+- Maintains original resolution unless 1080p downscaling is enabled
+- Preserves frame rate and color space
 
-## Script Overview
+## Performance
 
-### Code Structure
+- Hardware acceleration for both decoding (when available) and encoding
+- Typically achieves 3-4x faster than real-time processing
+- Optimized thread queue handling for improved stability
+- Memory-efficient processing suitable for long recordings
 
-- **File Queueing**: Dragged files are added to a queue (`remux_queue`) for processing.
-- **Background Processing**: The script uses multithreading to handle each file in the queue, keeping the GUI responsive.
-- **Queue Status Display**: A `Listbox` displays the status of each file in the queue.
+## Error Handling
 
-### Remuxing Process
+- Automatic codec support detection
+- Resolution checking with warnings for sub-HD content
+- Comprehensive error reporting in the GUI
+- Graceful process termination
+- Failed operation notifications
 
-The tool leverages FFmpeg to remux files by copying the audio and video streams directly into an MKV container without re-encoding, preserving the original quality. This process is particularly fast and lightweight, as only the container format changes.
+## Known Limitations
 
-## Requirements
-
-- **FFmpeg**: [Download FFmpeg](https://ffmpeg.org/download.html) and add it to your system PATH.
-
-## Example Workflow
-
-1. **Start the Tool**: Open the tool and begin dropping files.
-2. **Monitor the Queue**: Watch the list update as files are queued, processed, and completed.
-3. **Add More Files**: Continue adding files as needed; the tool will process them in sequence.
-4. **Check Results**: Completed files are saved in the same location as the original, with `_remuxed.mkv` appended to the filename.
-
-## Notes
-
-- **Compatibility**: This tool is optimized for DaVinci Resolve and should improve compatibility by converting MP4, MOV, and AVI files to MKV format.
-- **Batch Processing**: Ideal for users with extensive video libraries, as it handles large volumes efficiently.
+- Requires NVIDIA GPU for hardware acceleration
+- HEVC support depends on GPU capabilities
+- Limited to FFmpeg supported input formats
 
 ## Troubleshooting
 
-- **FFmpeg Not Found**: If FFmpeg is not installed or added to the system PATH, the tool will prompt you to install it.
-- **Invalid Files**: Only MP4, MOV, and AVI files are supported. Unsupported files will display an "Invalid File" message.
+### Common Issues
+
+1. **FFmpeg Not Found**:
+   - Ensure FFmpeg is properly installed
+   - Verify FFmpeg is in system PATH
+   - Restart application after FFmpeg installation
+
+2. **NVENC Errors**:
+   - Update NVIDIA drivers
+   - Verify GPU supports NVENC
+   - Check if other applications are using NVENC
+
+3. **Performance Issues**:
+   - Close other GPU-intensive applications
+   - Monitor GPU temperature
+   - Consider reducing maximum concurrent processes
+
+## System Requirements
+
+- Windows/Linux/macOS with Python 3.x support
+- NVIDIA GPU with NVENC support
+- Sufficient storage space for output files
+- 8GB RAM recommended
+- FFmpeg installed and in system PATH
+
+## Development
+
+This project is open for contributions. Key areas for potential improvement:
+
+- Additional output format options
+- Custom encoding profiles
+- Advanced audio options
+- Batch profile application
+- GPU load balancing
 
 ## License
 
-This project is open-source and licensed under the MIT License.
+This project is open-source and available under the MIT License.
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a new Pull Request
 
 ---
 
-By following these instructions, users can easily install, run, and benefit from the Video Remux Tool for DaVinci Resolve.
+For bug reports or feature requests, please use the issue tracker.
