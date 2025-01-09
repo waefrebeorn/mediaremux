@@ -7,15 +7,31 @@ import threading
 import queue
 import re
 import json
+import traceback
 
-# Check if ffmpeg is installed
+# Check if ffmpeg is installed and check encoder support
 def check_ffmpeg():
     try:
-        subprocess.run(
+        # Check ffmpeg version
+        version_result = subprocess.run(
             ["ffmpeg", "-version"],
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
-        return True
+        
+        # Check NVENC HEVC support
+        encoders_result = subprocess.run(
+            ["ffmpeg", "-encoders"],
+            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        encoders_output = encoders_result.stdout.decode()
+        if "hevc_nvenc" not in encoders_output:
+            messagebox.showerror(
+                "NVENC HEVC Not Available",
+                "Your system doesn't support NVENC HEVC encoding. Falling back to H264."
+            )
+            return "h264"
+            
+        return "hevc"
     except FileNotFoundError:
         messagebox.showerror(
             "FFmpeg Not Found",
@@ -23,19 +39,18 @@ def check_ffmpeg():
         )
         return False
 
-# Use ffprobe to get video resolution
 def get_video_resolution(file_path):
     try:
         result = subprocess.run(
             ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=width,height", "-of", "json", file_path],
+             "-show_entries", "stream=width,height,codec_name", "-of", "json", file_path],
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
         info = json.loads(result.stdout)
         stream = info.get("streams", [{}])[0]
-        return int(stream.get("width", 0)), int(stream.get("height", 0))
+        return int(stream.get("width", 0)), int(stream.get("height", 0)), stream.get("codec_name", "")
     except Exception:
-        return 0, 0
+        return 0, 0, ""
 
 def remux_video(app, file_path, output_queue):
     scale_enabled = app.downscale_var.get()
@@ -43,49 +58,119 @@ def remux_video(app, file_path, output_queue):
     base_name = os.path.splitext(os.path.basename(file_path))[0] + "_transcoded.mp4"
     output_path = os.path.join(output_folder, base_name)
 
+    # Get input codec and resolution
+    width, height, input_codec = get_video_resolution(file_path)
+
+    # Base command with optimized settings
     command = [
         "ffmpeg",
-        "-hwaccel", "cuda",
-        "-i", file_path,
-        "-c:v", "h264_nvenc",  # Use NVENC H.264 for better GPU utilization and smaller files
-        "-preset", "p4",  # Balanced preset for performance and quality
-        "-b:v", "6M",  # Target video bitrate
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-pix_fmt", "yuv420p",  # Standard pixel format for compatibility
-        "-map_metadata", "0", "-map", "0"
+        "-hwaccel_output_format", "cuda",  # Ensure CUDA output format
+        "-extra_hw_frames", "3",           # Additional hardware frames
+        "-thread_queue_size", "1024",      # Increase thread queue size
+        "-i", file_path
     ]
 
+    # Add encoding settings based on codec support
+    if app.codec_support == "hevc":
+        command.extend([
+            "-c:v", "hevc_nvenc",
+            "-preset", "p2",               # Fast preset
+            "-tune", "hq",                 # High quality tuning
+            "-rc", "vbr",                  # Variable bitrate
+            "-cq", "19",                   # Constant quality factor
+            "-qmin", "1",                  # Minimum quantizer
+            "-qmax", "51",                 # Maximum quantizer
+            "-b:v", "20M",                 # Base video bitrate
+            "-maxrate", "30M",             # Maximum bitrate
+            "-bufsize", "40M",             # VBV buffer size
+            "-spatial-aq", "1",            # Enable spatial AQ
+            "-temporal-aq", "1",           # Enable temporal AQ
+            "-refs", "3",                  # Number of reference frames
+            "-g", "250",                   # Keyframe interval
+            "-bf", "3"                     # Number of B-frames
+        ])
+    else:
+        # Fallback to H264 with optimized settings
+        command.extend([
+            "-c:v", "h264_nvenc",
+            "-preset", "p2",
+            "-tune", "hq",
+            "-rc", "vbr",
+            "-cq", "19",
+            "-qmin", "1",
+            "-qmax", "51",
+            "-b:v", "20M",
+            "-maxrate", "30M",
+            "-bufsize", "40M",
+            "-spatial-aq", "1",
+            "-temporal-aq", "1",
+            "-refs", "3",
+            "-g", "250",
+            "-bf", "3"
+        ])
+
+    # Audio settings - copy if already AAC, otherwise encode
+    command.extend([
+        "-c:a", "copy" if input_codec == "aac" else "aac",
+        "-b:a", "192k",
+        "-ar", "48000"                     # Set sample rate
+    ])
+
+    # Common settings
+    command.extend([
+        "-pix_fmt", "yuv420p",            # Standard pixel format
+        "-movflags", "+faststart",         # Enable fast start
+        "-map_metadata", "0",              # Copy metadata
+        "-map", "0"                        # Map all streams
+    ])
+
     if scale_enabled:
-        command += ["-vf", "scale=1920:1080"]
+        command.extend(["-vf", "scale=1920:1080"])
 
     command.append(output_path)
 
     try:
-        # Start the ffmpeg process
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # Add debug logging
+        print("Executing FFmpeg command:", " ".join(command))
+        
+        # Start the ffmpeg process with stderr pipe for progress
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True
+        )
+        
         # Store the process for potential termination
         app.transcoding_processes[file_path] = process
-        stdout, stderr = process.communicate()
+        
+        # Read stderr for progress and errors
+        stderr_output = []
+        for line in process.stderr:
+            stderr_output.append(line)
+            print(line, end='')  # Print progress in real-time
+            
+        process.wait()
+        
         if process.returncode == 0:
             output_queue.put((file_path, output_path, "Success"))
         else:
-            error_message = stderr.decode() if stderr else "Unknown Error"
+            error_message = "FFmpeg Error:\n" + "\n".join(stderr_output[-5:])
             output_queue.put((file_path, None, f"Error: {error_message}"))
+            
     except Exception as e:
-        output_queue.put((file_path, None, f"Error: {str(e)}"))
+        output_queue.put((file_path, None, f"Error: {str(e)}\n{traceback.format_exc()}"))
     finally:
-        # Remove process from tracking once finished
         if file_path in app.transcoding_processes:
             del app.transcoding_processes[file_path]
-
+            
 def process_queue(remux_queue, output_queue, stop_event, app):
     while not stop_event.is_set():
         try:
             file_path = remux_queue.get(timeout=1)
 
             # Check resolution and prepare a warning message if needed
-            width, height = get_video_resolution(file_path)
+            width, height, _ = get_video_resolution(file_path)
             if width < 1280 or height < 720:
                 warning_msg = f"Warning: {os.path.basename(file_path)} is below HD resolution. Consider enabling scaling."
                 output_queue.put((file_path, None, warning_msg))
@@ -98,7 +183,10 @@ def process_queue(remux_queue, output_queue, stop_event, app):
 class RemuxTool(TkinterDnD.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Video Remux Tool for DaVinci Resolve - Optimized with NVENC")
+        self.codec_support = check_ffmpeg()
+        if not self.codec_support:
+            self.quit()
+        self.title("Video Transcoder - HEVC Game Stream Optimized")
         
         # Make the window resizable
         self.resizable(True, True)
