@@ -123,7 +123,9 @@ def build_ffmpeg_command(app, file_path, output_path):
         "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
         "-map_metadata", "0",
-        "-map", "0"
+        # Map only video and audio streams explicitly
+        "-map", "0:v",
+        "-map", "0:a"
     ])
 
     if scale_enabled:
@@ -133,7 +135,7 @@ def build_ffmpeg_command(app, file_path, output_path):
 
     command.append(output_path)
     return command
-
+    
 def remux_video(app, file_path, output_queue):
     output_folder = app.output_folder if app.output_folder else os.path.dirname(file_path)
     base_name = os.path.splitext(os.path.basename(file_path))[0] + "_transcoded." + app.output_format_var.get()
